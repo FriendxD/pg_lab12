@@ -1,30 +1,21 @@
 # Описание
-Кластер PostgreSQL состоит из 3-х Docker-контейнеров (postgres:9.6 + установка необходимого для Python): Master, Slave и Arbiter. Скрипт-агент написан на Python и запускается во всех контейнерах.
+Кластер состоит из 3-х Docker-контейнеров: Master, Slave и Arbiter. Скрипт-агент написан на Python и запускается во всех контейнерах.
+Когда появляются потери сетевой связности Slave -> Master и это подтверждается от Arbiter, то Slave промоутится до мастера. Но если у Slave нет связи ни с одним из них, то промоут не происходит.
 
-При потери сетевой связности Slave -> Master и подтверждении потери связи от Arbiter, Slave промоутится до мастера.
-
-При этом если у Slave нет связи ни с Master, ни с Arbiter, промоут не происходит.
-
-Промоут происходит путём создания триггер-файла "/tmp/promote_me".
-
-Раз в секунду Slave проверяет связь Arbiter -> Master и Slave -> Master.
-
-Раз в 5 секунд Master проверяет связь Master -> Slave и Master -> Arbiter. В случае отсутствия обеих связей происходит блокировка всех входящих подключений на Master через iptables, путём изменения политики по умолчанию на DROP.
+Сам промоут создаёт триггер-файл "/tmp/promote_me". Slave проверяет связь Arbiter -> Master и Slave -> Master ежесекундно. Master проверяет связь Master -> Slave и Master -> Arbiter каждые 5 секунд. Но при отсутствия обеих связей происходит смена политик по умолчанию на DROP, тем самым происходит блокировка всех входящих подключений на Master через iptables.
 
 # Запуск
-Для запуска кластера: ```docker compose up```
-
-Для запуска тестирования кластера запустить на хосте скрипт ```python writer.py```
+Запуск кластера: ```docker compose up```
+Запуск скрипта для тестирования кластера ```python writer.py```
 
 # Тестирование кластера
 Тест №1: умирает Slave (в середине теста Writer на хосте стопит контейнер ```docker compose stop pg-slave```).
-
-При ```synchronous_commit = off```: потери отсутствуют.
-
-При ```synchronous_commit = remote_apply```: потери отсутствуют.
+При ```synchronous_commit = off```: без потерь.
+При ```synchronous_commit = remote_apply```: без потерь.
 
 Тест №2: умирает Master (в середине теста Writer на хосте стопит контейнер ```docker compose stop pg-master```).
+При ```synchronous_commit = off```: 24 записи были потеряны.
+При ```synchronous_commit = remote_apply```: без потерь.
 
-При ```synchronous_commit = off```: потеряно 24 записи.
-
-При ```synchronous_commit = remote_apply```: потери отсутствуют.
+# Вывод
+При использовании synchronous_commit = remote_apply потери данных отсутствуют, даже если Slave или Master недоступны, но при synchronous_commit = off потери данных возможны, если Master становится недоступным.
